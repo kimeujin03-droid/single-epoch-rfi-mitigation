@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the associated paper."
+title: "FWSVD Single-Epoch RFI Mitigation"
+authors:
+  - family-names: "Kim"
+    given-names: "Yujin"
+    affiliation: "Jeju National University"
+date-released: 2025-12-26
+license: "MIT"

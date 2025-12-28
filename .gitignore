@@ -1,0 +1,16 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.conda/
+.ipynb_checkpoints/
+
+# outputs
+runs/
+*.png
+*.pdf
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db

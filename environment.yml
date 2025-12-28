@@ -1,0 +1,9 @@
+name: fwsdv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.23
+  - matplotlib>=3.7
+  - scipy>=1.10
+  - pandas>=2.0
