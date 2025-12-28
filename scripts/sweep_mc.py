@@ -137,5 +137,30 @@ def main():
     save_json(os.path.join(args.out, "meta.json"), {"defaults": cfg, "grid": grid, "trials": args.trials})
     print("Saved:", os.path.join(args.out, "summary.csv"))
 
+import argparse, json
+from src.data_loader import load_real_data
+
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--use_real_data", action="store_true")
+    ap.add_argument("--real_data_key", type=str, default=None)
+    ap.add_argument("--real_data_cfg", type=str, default="configs/real_data_paths.json")
+    # 기존 synthetic 관련 args 유지
+    return ap.parse_args()
+
+def get_D(args, synth_generator, synth_params):
+    if not args.use_real_data:
+        return synth_generator(**synth_params), None  # (D, realmeta)
+
+    if not args.real_data_key:
+        raise ValueError("--use_real_data requires --real_data_key")
+
+    with open(args.real_data_cfg, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    item = cfg[args.real_data_key]
+    rd = load_real_data(item["path"], fmt=item.get("fmt"), **item.get("kwargs", {}))
+    return rd.D, rd.meta
+
 if __name__ == "__main__":
     main()
