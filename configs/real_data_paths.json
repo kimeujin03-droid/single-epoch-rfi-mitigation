@@ -1,0 +1,18 @@
+{
+  "lofar_starlink_case_01": {
+    "path": "/data/lofar/L123456_SB030.MS",
+    "fmt": "ms",
+    "kwargs": {
+      "pol": "I",
+      "amp_mode": "abs2",
+      "avg_over_baselines": true
+    }
+  },
+  "dynspec_example_fits_01": {
+    "path": "/data/dynspec/starlink_event.fits",
+    "fmt": "fits_dynspec",
+    "kwargs": {
+      "data_hdu": 0
+    }
+  }
+}
