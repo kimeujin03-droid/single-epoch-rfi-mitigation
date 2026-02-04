@@ -41,19 +41,49 @@ def main():
         science_band=tuple(cfg["science_band"]), protected_band=tuple(cfg["protected_band"]),
     )
 
-    rows=[]
-    trial_seeds = np.arange(args.trials) + int(cfg.get("seed", 0))
-    for r in grid["rank_grid"]:
-        for s in trial_seeds:
-            D, S_true, meta = make_synthetic(params, seed=int(s), overlap=True)
-            freqs = meta["freqs"]
+    rows = []
+trial_seeds = np.arange(args.trials) + int(cfg.get("seed", 0))
 
-            D_svd, _ = svd_subtract_rank_r(D, r=int(r))
-            S_hat = estimate_signal_1d(D_svd)
-            bias = relative_bias_percent(S_hat, S_true, eps=1e-5)
-            agg = aggregate_in_band(freqs, bias, params.science_band)
+for trial in trial_seeds:
+    p = SimParams(**{**cfg, "science_amp": 0.1})
+    D, S_true, meta = make_synthetic(p, seed=int(trial), overlap=True)
+    freqs = meta["freqs"]
 
-            rows.append({"seed": int(s), "rank": int(r), "median": agg["median"], "mean": agg["mean"], "max": agg["max"]})
+    # science band index (기존 그대로 사용)
+    sci_band_idx = tuple(cfg.get("science_band_idx", (110, 130)))
+    sci_lo, sci_hi = sci_band_idx  # [sci_lo, sci_hi) 라고 가정
+
+    # leakage 측정을 위한 "outside band" 마스크
+    F = D.shape[1]
+    outside_mask = np.ones(F, dtype=bool)
+    outside_mask[sci_lo:sci_hi] = False
+
+    # rank k = 1..max_rank sweep
+    for r in range(1, args.max_rank + 1):
+        # 저랭크 클리닝
+        D_svd, _ = svd_subtract_rank_r(D, r=r)
+
+        # ---------- (A) science distortion proxy (over-cleaning) ----------
+        # S_true 가 있는 band에서의 bias(기존 metric)
+        S_hat = estimate_signal_1d(D_svd)
+        bias = relative_bias_percent(S_hat, S_true, eps=1e-5)
+        agg_sci = aggregate_in_band(freqs, bias, sci_band_idx)
+        dist_proxy = float(agg_sci["median"])  # science distortion proxy
+
+        # ---------- (B) RFI leakage proxy (under-cleaning) ----------
+        # science band 밖(outside band)에서의 residual RMS
+        # D_svd 는 "science + noise (+ 남은 RFI)" 라고 생각하면 됨
+        resid_out = D_svd[:, outside_mask]
+        # "남은 에너지"가 클수록 under-cleaning 심함
+        leak_proxy = float(np.sqrt(np.mean(resid_out**2)))
+
+        rows.append({
+            "seed": int(trial),
+            "k": int(r),
+            "leak_proxy": leak_proxy,
+            "dist_proxy": dist_proxy,
+        })
+
 
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(args.out, "summary.csv"), index=False)
