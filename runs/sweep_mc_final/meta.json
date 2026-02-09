@@ -1,0 +1,63 @@
+{
+  "trials": 5,
+  "max_k": 50,
+  "defaults": {
+    "T": 60,
+    "F": 240,
+    "freq_min_mhz": 0.0,
+    "freq_max_mhz": 12.0,
+    "science_center_mhz": 6.0,
+    "science_sigma_mhz": 0.2,
+    "science_amp": 0.1,
+    "science_sub_amp": 0.03,
+    "noise_sigma": 0.001,
+    "comb_centers_mhz": [
+      5.6,
+      5.8,
+      6.0,
+      6.2,
+      6.4
+    ],
+    "comb_sigma_mhz": 0.02,
+    "comb_amp": 10.0,
+    "time_burst_center": 5.0,
+    "time_burst_sigma": 1.0,
+    "broadband_slope": 0.03,
+    "ripple_amp": 0.03,
+    "ripple_period_mhz": 1.5,
+    "science_band": [
+      5.5,
+      6.5
+    ],
+    "protected_band": [
+      5.8,
+      6.2
+    ],
+    "w_core": 0.1,
+    "w_prot": 0.3,
+    "rank_r": 1,
+    "seed": 42
+  },
+  "grid": {
+    "snr_science_grid": [
+      0.5,
+      1.0,
+      2.0,
+      5.0,
+      10.0
+    ],
+    "comb_amp_grid": [
+      5.0,
+      10.0,
+      15.0,
+      20.0
+    ],
+    "overlap_mode": [
+      "overlap",
+      "nonoverlap"
+    ],
+    "rank_r": 1,
+    "w_core": 0.1,
+    "w_prot": 0.3
+  }
+}
