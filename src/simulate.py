@@ -26,8 +26,8 @@ class SimParams:
     science_band: tuple[float, float] = (5.5, 6.5)
     protected_band: tuple[float, float] = (5.8, 6.2)
 
-def _gaussian(x: np.ndarray, mu: float, sigma: float) -> np.ndarray:
-    return np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+def _gaussian(x: np.ndarray, amp: float, mu: float, sigma: float, offset: float = 0.0) -> np.ndarray:
+    return offset + amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 def make_synthetic(params: SimParams, seed: int = 0, overlap: bool = True):
     """Return (D, S_true_1d, meta) where D is (T,F)."""
