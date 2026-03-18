@@ -26,18 +26,29 @@ class SimParams:
     science_band: tuple[float, float] = (5.5, 6.5)
     protected_band: tuple[float, float] = (5.8, 6.2)
 
-def _gaussian(x: np.ndarray, amp: float, mu: float, sigma: float, offset: float = 0.0) -> np.ndarray:
+def _gaussian(
+    x: np.ndarray,
+    amp: float,
+    mu: float,
+    sigma: float,
+    offset: float = 0.0
+) -> np.ndarray:
     return offset + amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
 
 def make_synthetic(params: SimParams, seed: int = 0, overlap: bool = True):
-    """Return (D, S_true_1d, meta) where D is (T,F)."""
+    """Return (D, S_true_1d, meta) where D is (T, F)."""
     rng = np.random.default_rng(seed)
 
     times = np.linspace(0.0, 10.0, params.T)
     freqs = np.linspace(params.freq_min_mhz, params.freq_max_mhz, params.F)
 
     # Science signal (time-invariant)
-    S_true_1d = params.science_amp * _gaussian(freqs, params.science_center_mhz, params.science_sigma_mhz)
+    S_true_1d = _gaussian(
+        freqs,
+        amp=params.science_amp,
+        mu=params.science_center_mhz,
+        sigma=params.science_sigma_mhz,
+    )
     D_S = np.tile(S_true_1d, (params.T, 1))
 
     # Comb interference pattern
@@ -50,9 +61,20 @@ def make_synthetic(params: SimParams, seed: int = 0, overlap: bool = True):
         centers = [c + shift for c in centers]
 
     for f0 in centers:
-        I_pattern += _gaussian(freqs, f0, params.comb_sigma_mhz)
+        I_pattern += _gaussian(
+            freqs,
+            amp=1.0,
+            mu=f0,
+            sigma=params.comb_sigma_mhz,
+        )
 
-    time_env = _gaussian(times, params.time_burst_center, params.time_burst_sigma)[:, None]
+    time_env = _gaussian(
+        times,
+        amp=1.0,
+        mu=params.time_burst_center,
+        sigma=params.time_burst_sigma,
+    )[:, None]
+
     D_I = params.comb_amp * np.tile(I_pattern, (params.T, 1)) * time_env
 
     # Additive noise
@@ -64,6 +86,6 @@ def make_synthetic(params: SimParams, seed: int = 0, overlap: bool = True):
         "times": times,
         "freqs": freqs,
         "overlap": overlap,
-        "comb_centers_mhz": centers
+        "comb_centers_mhz": centers,
     }
     return D, S_true_1d, meta
