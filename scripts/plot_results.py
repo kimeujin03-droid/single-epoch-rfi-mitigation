@@ -1,16 +1,5 @@
 #!/usr/bin/env python
-"""Plot summary outputs from sweeps.
-
-Run from the repository root. This script reads the aggregated CSV files produced by:
-  - scripts/sweep_weights.py
-  - scripts/sweep_rank.py
-  - scripts/sweep_mc.py
-
-Examples:
-  python scripts/plot_results.py --kind weights
-  python scripts/plot_results.py --kind rank
-  python scripts/plot_results.py --kind mc
-"""
+"""Plot summary outputs from sweeps."""
 
 import argparse
 from pathlib import Path
@@ -27,78 +16,68 @@ def _load_or_fail(path: Path) -> pd.DataFrame:
 
 
 def plot_weights(df: pd.DataFrame, outpath: Path):
-    # Expect columns: w_core, median_bias, mean_bias, max_bias, method (optional)
-    if "method" not in df.columns:
-        df = df.copy()
-        df["method"] = "FWSVD"
+    """Plot FWSVD sensitivity to (w_core, w_prot) like the paper figure.
 
-    plt.figure()
-    for method, g in df.groupby("method"):
-        x = g["w_core"].astype(float).values
-        y = g["median_bias"].astype(float).values
-        order = np.argsort(x)
-        plt.plot(x[order], y[order], marker="o", label=str(method))
+    Expects a grid over (w_core, w_prot) with FWSVD median bias in ``fws_median``.
+    """
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(7, 5))
+
+    # Require the expected aggregate columns
+    required = {"w_core", "w_prot", "fws_median"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Weight sweep summary is missing columns: {required - set(df.columns)}")
+
+    # One curve per w_core, x-axis is w_prot (log), y-axis is FWSVD median bias
+    for w_core, g in df.groupby("w_core"):
+        g = g.copy().sort_values("w_prot")
+        x = g["w_prot"].astype(float).values
+        y = g["fws_median"].astype(float).values
+        plt.plot(x, y, marker="o", label=f"w_core={w_core}")
 
     plt.xscale("log")
-    plt.xlabel("w_core")
-    plt.ylabel("Median relative bias (%) in science band")
-    plt.title("Weight sweep")
-    plt.legend()
+    plt.xlabel("w_prot")
+    plt.ylabel("Median bias (%) in science band")
+    # Use a log scale on the y-axis so tick labels appear in scientific notation
+    plt.yscale("log")
+    plt.title("FWSVD sensitivity to (w_core, w_prot)")
+    plt.legend(title="", fontsize=9)
     plt.tight_layout()
-    outpath.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(outpath, dpi=200)
+    plt.close()
 
 
 def plot_rank(df: pd.DataFrame, outpath: Path):
-    # Expect columns: rank, median_bias, method (optional)
-    if "method" not in df.columns:
-        df = df.copy()
-        df["method"] = "SVD"
+    g = df.copy().sort_values("rank")
+    x = g["rank"].astype(int).values
+    y_leak = g["rfi_leakage"].astype(float).values
+    y_loss = g["science_loss"].astype(float).values
 
-    plt.figure()
-    for method, g in df.groupby("method"):
-        x = g["rank"].astype(int).values
-        y = g["median_bias"].astype(float).values
-        order = np.argsort(x)
-        plt.plot(x[order], y[order], marker="o", label=str(method))
-
-    plt.xlabel("Rank r")
-    plt.ylabel("Median relative bias (%) in science band")
-    plt.title("Rank sweep")
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(8, 5))
+    plt.axvspan(2, 3, alpha=0.15, label="Operational knee (k≈2–3)")
+    plt.plot(x, y_leak, marker="o", label="Rank Sweep — RFI leakage")
+    plt.plot(x, y_loss, marker="s", label="Rank Sweep — science loss")
+    plt.yscale("log")
+    plt.xlabel("Rank k")
+    plt.ylabel("Proxy (lower is better; log scale)")
     plt.legend()
     plt.tight_layout()
-    outpath.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(outpath, dpi=200)
+    plt.close()
 
 
 def plot_mc(df: pd.DataFrame, outpath: Path):
-    """Plot Monte-Carlo summary bars for each method.
-
-    The sweep_mc script outputs summary_agg.csv with per-method stats columns.
-    We plot the median science-band bias (and where present, core/fit-fail metrics).
-    """
-    # Columns are method, median, mean, max, n
+    outpath.parent.mkdir(parents=True, exist_ok=True)
     if "method" in df.columns:
         methods = df["method"].astype(str).values
         med = df["median"].astype(float).values
-
-        plt.figure()
-        plt.bar(methods, med)
-        plt.xticks(rotation=30, ha="right")
-        plt.ylabel("Median relative bias (%) in science band")
-        plt.title("Monte-Carlo summary")
-        plt.tight_layout()
-        outpath.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(outpath, dpi=200)
-        return
-
-    # Back-compat fallback: look for *_median columns
-    cols = [c for c in df.columns if c.endswith("_median")]
-    if not cols:
-        raise ValueError("Unrecognized MC aggregate format. Expected column 'method' or '*_median' columns.")
-
-    methods = [c.replace("_median", "") for c in cols]
-    med = [float(df[c].iloc[0]) for c in cols]
+    else:
+        cols = [c for c in df.columns if c.endswith("_median")]
+        if not cols:
+            raise ValueError("Unrecognized MC aggregate format. Expected column 'method' or '*_median' columns.")
+        methods = [c.replace("_median", "") for c in cols]
+        med = [float(df[c].iloc[0]) for c in cols]
 
     plt.figure()
     plt.bar(methods, med)
@@ -106,8 +85,8 @@ def plot_mc(df: pd.DataFrame, outpath: Path):
     plt.ylabel("Median relative bias (%) in science band")
     plt.title("Monte-Carlo summary")
     plt.tight_layout()
-    outpath.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(outpath, dpi=200)
+    plt.close()
 
 
 def main():
@@ -126,9 +105,9 @@ def main():
         plot_rank(df, runs / "sweep_rank" / "fig_rank.png")
         print(f"Wrote {runs / 'sweep_rank' / 'fig_rank.png'}")
     else:
-        df = _load_or_fail(runs / "sweep_mc" / "summary_agg.csv")
-        plot_mc(df, runs / "sweep_mc" / "fig_mc.png")
-        print(f"Wrote {runs / 'sweep_mc' / 'fig_mc.png'}")
+        df = _load_or_fail(runs / "sweep_mc_final" / "summary_agg.csv")
+        plot_mc(df, runs / "sweep_mc_final" / "fig_mc.png")
+        print(f"Wrote {runs / 'sweep_mc_final' / 'fig_mc.png'}")
 
 
 if __name__ == "__main__":
