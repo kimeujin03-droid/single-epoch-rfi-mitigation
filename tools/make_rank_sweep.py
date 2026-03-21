@@ -170,11 +170,11 @@ def plot_figure2(ks, contamination, distortion, outpath):
     ax.set_xlabel('Rank k', fontsize=13)
     ax.set_ylabel('Proxy (lower is better, log-scale)', fontsize=13)
     
-    # Grid (논문처럼 더 촘촘하고 연하게)
+    # Grid 
     ax.grid(True, which='major', linestyle='-', alpha=0.2, linewidth=0.8, zorder=0)
     ax.grid(True, which='minor', linestyle=':', alpha=0.15, linewidth=0.5, zorder=0)
     
-    # Legend (논문 위치)
+    # Legend 
     legend = ax.legend(loc='upper right', 
                       frameon=True, 
                       edgecolor='black',
@@ -184,7 +184,7 @@ def plot_figure2(ks, contamination, distortion, outpath):
                       shadow=False)
     legend.get_frame().set_linewidth(1.0)
     
-    # Operational knee (논문처럼 왼쪽 상단)
+    # Operational knee 
     ax.axvspan(2, 3, alpha=0.12, color='gray', zorder=0)
     
     y_text = 10 ** (-2.3)  # 논문 그래프 기준
@@ -198,7 +198,7 @@ def plot_figure2(ks, contamination, distortion, outpath):
     
     # Axis limits 
     ax.set_xlim(0.5, 15.5)
-    ax.set_ylim(5e-4, 2e-1)  # 논문 그래프의 y축 범위
+    ax.set_ylim(5e-4, 2e-1)  
     
     # X-axis ticks 
     ax.set_xticks([2, 4, 6, 8, 10, 12, 14])
