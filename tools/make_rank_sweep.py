@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-"""
-논문 Figure 2 정확 재현 - Table 2 파라미터 완전 준수
-"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -94,17 +91,6 @@ def truncated_svd_Lk(X, k):
     return (Uk * sk) @ Vtk
 
 def compute_proxies(D, S_true, RFI, freqs, k_max=15):
-    """
-    올바른 proxy 계산:
-    
-    E_k = D - L_k (residual, cleaned data)
-    
-    RFI leakage: E_k에 RFI가 얼마나 남았는지
-      → science band 밖에서 E_k의 RMS
-    
-    Science loss: L_k가 science를 얼마나 제거했는지
-      → science band 안에서 S_true와 E_k의 차이
-    """
     ks = np.arange(1, k_max + 1)
     leakage_vals = []
     loss_vals = []
@@ -201,7 +187,6 @@ def plot_figure2(ks, contamination, distortion, outpath):
     # Operational knee (논문처럼 왼쪽 상단)
     ax.axvspan(2, 3, alpha=0.12, color='gray', zorder=0)
     
-    # Text box 위치 조정 (논문처럼)
     y_text = 10 ** (-2.3)  # 논문 그래프 기준
     ax.text(2.5, y_text, 'Operational knee (k≈2-3)',
             ha='center', va='center', fontsize=10,
@@ -211,11 +196,11 @@ def plot_figure2(ks, contamination, distortion, outpath):
                      alpha=0.95,
                      linewidth=1.0))
     
-    # Axis limits (논문과 비슷하게)
+    # Axis limits 
     ax.set_xlim(0.5, 15.5)
     ax.set_ylim(5e-4, 2e-1)  # 논문 그래프의 y축 범위
     
-    # X-axis ticks (논문처럼 짝수만)
+    # X-axis ticks 
     ax.set_xticks([2, 4, 6, 8, 10, 12, 14])
     
     # Spine 스타일
