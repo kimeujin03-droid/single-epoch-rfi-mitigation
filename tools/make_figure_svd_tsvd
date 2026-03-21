@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""
+Two-panel Figure: (a) SVD (baseline) and (b) TSVD (per-trial optimal window)
+Runs 30 synthetic trials, finds SVD knee per trial, optimizes TSVD window at that k,
+and overlays Pareto fronts and knee markers. Saves to outputs/figure6_2panel_svd_tsvd_30trials.png
+"""
+from __future__ import annotations
+
+import os
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+OUTDIR = os.path.join(os.path.dirname(__file__), '..', 'outputs')
+os.makedirs(OUTDIR, exist_ok=True)
+OUTPNG = os.path.join(OUTDIR, 'figure6_2panel_svd_tsvd_30trials.png')
+
+
+def truncated_svd_Lk(X: np.ndarray, k: int) -> np.ndarray:
+    if k <= 0:
+        return np.zeros_like(X)
+    U, s, Vt = np.linalg.svd(X, full_matrices=False)
+    Uk = U[:, :k]
+    sk = s[:k]
+    Vtk = Vt[:k, :]
+    return (Uk * sk) @ Vtk
+
+
+def tsvd_Lk(X: np.ndarray, k: int, window: int = 5) -> np.ndarray:
+    if window <= 1:
+        return truncated_svd_Lk(X, k)
+    kern = np.ones(window) / float(window)
+    Xs = np.apply_along_axis(lambda m: np.convolve(m, kern, mode='same'), 0, X)
+    return truncated_svd_Lk(Xs, k)
+
+
+def pareto_mask_minimize(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    x = np.asarray(x)
+    y = np.asarray(y)
+    n = len(x)
+    keep = np.ones(n, dtype=bool)
+    for i in range(n):
+        for j in range(n):
+            if j == i:
+                continue
+            if (x[j] <= x[i]) and (y[j] <= y[i]) and ((x[j] < x[i]) or (y[j] < y[i])):
+                keep[i] = False
+                break
+    return keep
+
+
+def detect_knee(front_x: np.ndarray, front_y: np.ndarray, front_k: np.ndarray) -> int:
+    if len(front_x) < 3:
+        return int(front_k[len(front_k) // 2])
+    lx = np.log(front_x + 1e-16)
+    ly = np.log(front_y + 1e-16)
+    curv = np.zeros(len(front_x))
+    for i in range(1, len(front_x) - 1):
+        v1 = np.array([lx[i] - lx[i - 1], ly[i] - ly[i - 1]])
+        v2 = np.array([lx[i + 1] - lx[i], ly[i + 1] - ly[i]])
+        nv1 = v1 / (np.linalg.norm(v1) + 1e-16)
+        nv2 = v2 / (np.linalg.norm(v2) + 1e-16)
+        cosang = np.clip(np.dot(nv1, nv2), -1.0, 1.0)
+        curv[i] = 1.0 - cosang
+    idx = int(np.argmax(curv))
+    return int(front_k[idx])
+
+
+def fwsvd_lowrank_unused(*args, **kwargs):
+    raise RuntimeError('not used')
+
+
+def run(trials: int = 10, K: int = 6, seed: int = 0):
+    rng = np.random.default_rng(seed)
+    T = 200
+    F = 128
+    t = np.linspace(0.0, 1.0, T)
+    freqs = np.linspace(0.0, 1.0, F)
+
+    core_center = 0.43
+    core_width = 0.06
+    band_center = 0.5
+    science_core = np.exp(-0.5 * ((freqs - core_center) / core_width) ** 2)
+    science_env = 1.0 / (1.0 + 5.0 * (freqs - band_center) ** 2)
+    S_nu = 0.07 * science_env + 0.03 * science_core
+
+    comb_freqs = np.array([0.12, 0.27, 0.43, 0.62, 0.80])
+    comb_idx = np.array([int(np.argmin(np.abs(freqs - cf))) for cf in comb_freqs])
+
+    plt.rcParams.update({"font.size": 10})
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    cmap = plt.get_cmap('tab10')
+
+    # track global ranges
+    all_xmin = np.inf
+    all_xmax = -np.inf
+    all_ymin = np.inf
+    all_ymax = -np.inf
+
+    for trial in range(trials):
+        rng = np.random.default_rng(seed + trial)
+        comb = np.zeros((T, F))
+        for i, idx in enumerate(comb_idx):
+            duty = 0.12 + 0.05 * (i % 3)
+            on = (rng.random(T) < duty).astype(float)
+            amp = 0.60 if (i % 2 == 0) else 0.35
+            comb[:, idx] += on * amp
+        comb += 0.03 * np.sin(2 * np.pi * 2.0 * np.outer(t, np.linspace(0, 1, F)))
+        X = np.outer(np.ones(T), S_nu) + comb + 0.008 * rng.normal(size=(T, F))
+        S_true = np.outer(np.ones(T), S_nu)
+        R_true = comb
+
+        # Sweep a small range of low ranks so each curve has ~4–6 points.
+        # For K=6 this gives k = 1..6; you can increase K via CLI if needed.
+        ks = np.arange(1, K + 1)
+        leak_s = []
+        dist_s = []
+        S_norm = np.linalg.norm(S_true, 'fro')
+        R_norm = np.linalg.norm(R_true, 'fro')
+
+        for k in ks:
+            Lk_s = truncated_svd_Lk(X, k)
+            Ek_s = X - Lk_s
+            leak_val_s = np.linalg.norm(R_true - Lk_s, 'fro') / (R_norm + 1e-16)
+            preservation_s = np.linalg.norm(Ek_s, 'fro') / (S_norm + 1e-16)
+            preservation_s = min(preservation_s, 1.0)
+            dist_val_s = 1.0 - preservation_s
+            leak_s.append(leak_val_s)
+            dist_s.append(dist_val_s)
+        # keep full arrays for selection and computation, but we'll sample k for plotting
+        dist_s = np.array(dist_s)
+        leak_s = np.array(leak_s)
+        # compute Pareto front on full sweep (original behavior)
+        mask_s = pareto_mask_minimize(dist_s, leak_s)
+        fx_s_full = dist_s[mask_s]
+        fy_s_full = leak_s[mask_s]
+        fk_s_full = ks[mask_s]
+        order_full = np.argsort(fx_s_full)
+        fx_s_full, fy_s_full, fk_s_full = fx_s_full[order_full], fy_s_full[order_full], fk_s_full[order_full]
+        knee_s = detect_knee(fx_s_full, fy_s_full, fk_s_full)
+
+        # For plotting, resample to a modest number of k values so each line
+        # has only a handful of points (4–6) as in the paper figure. We take
+        # up to 6 evenly spaced k's from the available sweep 1..K.
+        if K <= 6:
+            fk_s = ks.copy()
+        else:
+            fk_s = np.linspace(1, K, num=6, dtype=int)
+            fk_s = np.unique(fk_s)
+        fx_s = dist_s[fk_s - 1]
+        fy_s = leak_s[fk_s - 1]
+        # sort sampled points by distortion for plotting aesthetics
+        order = np.argsort(fx_s)
+        fx_s, fy_s, fk_s = fx_s[order], fy_s[order], fk_s[order]
+
+        # update global ranges
+        if fx_s.size:
+            all_xmin = min(all_xmin, float(np.min(fx_s)))
+            all_xmax = max(all_xmax, float(np.max(fx_s)))
+            all_ymin = min(all_ymin, float(np.min(fy_s)))
+            all_ymax = max(all_ymax, float(np.max(fy_s)))
+
+        # find best window for TSVD at knee_s (use knee k-value found from Pareto front)
+        window_grid = [3, 5, 7, 9, 11]
+        best_win = window_grid[0]
+        best_leak = np.inf
+        # dist at knee (use full dist_s array indexed by k-1)
+        dist_s_at_k = dist_s[knee_s - 1]
+        for win in window_grid:
+            L_t_k = tsvd_Lk(X, knee_s, window=win)
+            leak_val = np.linalg.norm(R_true - L_t_k, 'fro') / (R_norm + 1e-16)
+            Ek = X - L_t_k
+            preservation = np.linalg.norm(Ek, 'fro') / (S_norm + 1e-16)
+            dist_val = 1.0 - preservation
+            if dist_val <= dist_s_at_k * 1.05 and leak_val < best_leak:
+                best_leak = leak_val
+                best_win = win
+
+        # compute TSVD sweep with best_win
+        leak_ts = []
+        dist_ts = []
+        for k in ks:
+            Lk_t = tsvd_Lk(X, k, window=best_win)
+            Ek_t = X - Lk_t
+            leak_val = np.linalg.norm(R_true - Lk_t, 'fro') / (R_norm + 1e-16)
+            preservation = np.linalg.norm(Ek_t, 'fro') / (S_norm + 1e-16)
+            preservation = min(preservation, 1.0)
+            dist_val = 1.0 - preservation
+            leak_ts.append(leak_val)
+            dist_ts.append(dist_val)
+
+        dist_ts = np.array(dist_ts)
+        leak_ts = np.array(leak_ts)
+        # compute Pareto front for TSVD (original behavior)
+        mask_ts = pareto_mask_minimize(dist_ts, leak_ts)
+        fx_ts_full = dist_ts[mask_ts]
+        fy_ts_full = leak_ts[mask_ts]
+        fk_ts_full = ks[mask_ts]
+        order_full_t = np.argsort(fx_ts_full)
+        fx_ts_full, fy_ts_full, fk_ts_full = fx_ts_full[order_full_t], fy_ts_full[order_full_t], fk_ts_full[order_full_t]
+        knee_t = detect_knee(fx_ts_full, fy_ts_full, fk_ts_full)
+
+        # sample same k-values for plotting TSVD
+        fk_ts = fk_s.copy()
+        fx_ts = dist_ts[fk_ts - 1]
+        fy_ts = leak_ts[fk_ts - 1]
+        order = np.argsort(fx_ts)
+        fx_ts, fy_ts, fk_ts = fx_ts[order], fy_ts[order], fk_ts[order]
+
+        if fx_ts.size:
+            all_xmin = min(all_xmin, float(np.min(fx_ts)))
+            all_xmax = max(all_xmax, float(np.max(fx_ts)))
+            all_ymin = min(all_ymin, float(np.min(fy_ts)))
+            all_ymax = max(all_ymax, float(np.max(fy_ts)))
+
+        color = cmap(trial % cmap.N)
+        # SVD panel
+        ax = axes[0]
+        if len(fx_s) > 1:
+            ax.plot(fx_s, fy_s, color=color, alpha=0.75, linewidth=1.0)
+        ax.scatter(fx_s, fy_s, color=color, s=18, alpha=0.85)
+        idx = np.where(fk_s == knee_s)[0]
+        if idx.size:
+            ax.scatter(fx_s[idx[0]], fy_s[idx[0]], facecolors='none', edgecolors='k', s=110, linewidths=1.4, clip_on=False, zorder=5)
+
+        # TSVD panel: connect points in increasing-k order with a solid line
+        ax = axes[1]
+        if len(fx_ts) > 1:
+            # connect in k-order so the line follows increasing rank
+            order_k = np.argsort(fk_ts)
+            ax.plot(fx_ts[order_k], fy_ts[order_k], color=color, alpha=0.85, linewidth=1.2, linestyle='-')
+        ax.scatter(fx_ts, fy_ts, color=color, s=18, alpha=0.85)
+        idx2 = np.where(fk_ts == detect_knee(fx_ts, fy_ts, fk_ts))[0]
+        if idx2.size:
+            ax.scatter(fx_ts[idx2[0]], fy_ts[idx2[0]], facecolors='none', edgecolors='k', s=110, linewidths=1.4, clip_on=False, zorder=5)
+
+    # compute shared log limits and apply user y-range
+    safe_floor = 1e-12
+    min_x = max(all_xmin, safe_floor)
+    max_x = max(all_xmax, min_x * 1e-3)
+    min_y = max(all_ymin, safe_floor)
+    max_y = max(all_ymax, min_y * 1e-3)
+    pad_decs = 0.03
+    logmin_x = np.log10(min_x)
+    logmax_x = np.log10(max_x)
+    xmin = 10 ** (logmin_x - pad_decs)
+    xmax = 10 ** (logmax_x + pad_decs)
+    # fixed tight user y-range (start y at 1.25 per request)
+    ymin = 1.25
+    ymax = 1.65
+
+    for ax, title in zip(axes, ['(a) SVD (baseline)', '(b) TSVD (optimal win)']):
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('Bias⁻ — science distortion (log)')
+        ax.set_ylabel('Bias⁺ — RFI leakage (log)')
+        ax.set_title(title)
+        ax.grid(True, which='both', ls=':', alpha=0.4)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+
+    axes[1].plot([], [], marker='o', markerfacecolor='none', markeredgecolor='k', linestyle='None', label='knee (per-trial)')
+    axes[1].legend(loc='upper right', frameon=False)
+
+    fig.subplots_adjust(left=0.07, right=0.985, top=0.92, bottom=0.12, wspace=0.28)
+    fig.savefig(OUTPNG, dpi=220, bbox_inches='tight', pad_inches=0.08)
+    plt.close(fig)
+    print('WROTE:', OUTPNG)
+
+
+if __name__ == '__main__':
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description=(
+            "Make 2-panel SVD/TSVD Pareto figure for synthetic RFI non-identifiability "
+            "(a) SVD baseline, (b) TSVD with per-trial optimal window."
+        )
+    )
+    ap.add_argument(
+        "--trials",
+        type=int,
+        default=8,
+        help="Number of synthetic trials to run (default: 8 for quick preview)",
+    )
+    ap.add_argument(
+        "-K",
+        "--max-rank",
+        dest="K",
+        type=int,
+        default=30,
+        help="Maximum SVD/TSVD rank to sweep (default: 30)",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Base random seed (default: 0)",
+    )
+    args = ap.parse_args()
+
+    run(trials=args.trials, K=args.K, seed=args.seed)
