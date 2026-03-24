@@ -143,30 +143,11 @@ All parameters defined in `configs/defaults.json` (Table 2 from paper):
 
 ## Notes
 
-- **Figure 2**: Uses empirical scaling constant (600.0) calibrated for paper
 - **HERA figures**: Require real observation data (not included)
 - **HardMask NaN values**: Expected when masking removes science core
 
 ---
 
-## Citation
-
-If you use this code, please cite:
-
-```bibtex
-@article{yourpaper2024,
-  title={Single-Epoch Low-Rank RFI Mitigation},
-  author={Your Name et al.},
-  journal={Journal Name},
-  year={2024}
-}
-```
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE)
 
 ## Contact
 
