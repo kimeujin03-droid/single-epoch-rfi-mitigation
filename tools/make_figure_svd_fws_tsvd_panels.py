@@ -1,13 +1,4 @@
 
-#!/usr/bin/env python3
-"""
-Create 3-panel comparisons (SVD, FWSVD, TSVD) for:
-  - simulation testbed (synthetic comb + injected spectrum)
-  - real HERA sample (loads HERA_04-03-2022_all.pkl)
-Saves:
-  - ../outputs/figure_svd_fws_tsvd_simulation.png
-  - ../outputs/figure_svd_fws_tsvd_hera.png
-"""
 
 from __future__ import annotations
 
@@ -27,7 +18,6 @@ import pandas as pd
 OUTDIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 os.makedirs(OUTDIR, exist_ok=True)
 
-OUTSIM = os.path.join(OUTDIR, "figure_svd_fws_tsvd_simulation.png")
 OUTHERA = os.path.join(OUTDIR, "figure_svd_fws_tsvd_hera.png")
 
 
@@ -225,7 +215,7 @@ def plot_comparison(
 
     titles = [
         f"SVD (k={k_choice})",
-        f"FWSVD (k={k_choice}, w={best_w})",
+        f"FWSVD (k={k_choice}, w={best_w:.3g})",
         f"TSVD (k={k_choice}, win={best_win})",
     ]
 
@@ -256,7 +246,7 @@ def plot_comparison(
     traces = [
         ("S_true", S_true_1d, "b"),
         ("SVD",   S_hat_s,   "C1"),
-        ("FWSVD", S_hat_fw,  "C2"),
+        (f"FWSVD (w={best_w:.3g})", S_hat_fw,  "C2"),
         ("TSVD",  S_hat_t,   "C3"),
     ]
 
@@ -283,148 +273,6 @@ def plot_comparison(
     fig.savefig(outpath, dpi=220, bbox_inches="tight")
     plt.close(fig)
     print(f"WROTE: {outpath}")
-
-
-# ============================================================================
-# Simulation
-# ============================================================================
-
-def run_simulation(outpath: str = OUTSIM, K: int = 50) -> None:
-    """Run synthetic comb + injected spectrum simulation."""
-    rng = np.random.default_rng(0)
-
-    # Simulation parameters
-    T, F = 200, 128
-    t = np.linspace(0.0, 1.0, T)
-    freqs = np.linspace(0.0, 1.0, F)
-
-    # Science signal parameters
-    core_center, core_width = 0.43, 0.06
-    band_center = 0.5
-
-    # Generate science spectrum
-    science_core = np.exp(-0.5 * ((freqs - core_center) / core_width) ** 2)
-    science_env = 1.0 / (1.0 + 5.0 * (freqs - band_center) ** 2)
-    S_nu = 0.07 * science_env + 0.03 * science_core
-
-    # Generate RFI comb
-    comb_freqs = np.array([0.12, 0.27, 0.43, 0.62, 0.80])
-    comb_idx = np.array([int(np.argmin(np.abs(freqs - cf))) for cf in comb_freqs])
-
-    comb = np.zeros((T, F))
-    for i, idx in enumerate(comb_idx):
-        duty = 0.12 + 0.05 * (i % 3)
-        on = (rng.random(T) < duty).astype(float)
-        amp = 0.60 if (i % 2 == 0) else 0.35
-        comb[:, idx] += on * amp
-
-    comb += 0.03 * np.sin(2 * np.pi * 2.0 * np.outer(t, np.linspace(0, 1, F)))
-
-    # Construct data
-    X = np.outer(np.ones(T), S_nu) + comb + 0.008 * rng.normal(size=(T, F))
-    S_true = np.outer(np.ones(T), S_nu)
-    R_true = comb
-
-    # Find optimal rank via Pareto front
-    ks = np.arange(1, K + 1)
-    leak_s, dist_s = [], []
-
-    S_norm = np.linalg.norm(S_true, "fro")
-    R_norm = np.linalg.norm(R_true, "fro")
-
-    for k in ks:
-        Lk_s = truncated_svd_Lk(X, k)
-        Ek_s = X - Lk_s
-
-        leak_val_s = np.linalg.norm(R_true - Lk_s, "fro") / (R_norm + 1e-16)
-        preservation_s = np.linalg.norm(Ek_s, "fro") / (S_norm + 1e-16)
-        dist_val_s = 1.0 - min(preservation_s, 1.0)
-
-        leak_s.append(leak_val_s)
-        dist_s.append(dist_val_s)
-
-    dist_s = np.array(dist_s)
-    leak_s = np.array(leak_s)
-
-    # Pareto front + knee
-    mask_s = pareto_mask_minimize(dist_s, leak_s)
-    fx_s = dist_s[mask_s]
-    fy_s = leak_s[mask_s]
-    fk_s = ks[mask_s]
-
-    order = np.argsort(fx_s)
-    fx_s, fy_s, fk_s = fx_s[order], fy_s[order], fk_s[order]
-
-    k_choice = int(detect_knee(fx_s, fy_s, fk_s))
-    dist_s_at_k = dist_s[k_choice - 1]
-
-    # Optimize FWSVD weight
-    core_idx_bounds = (
-        int(np.argmin(np.abs(freqs - (core_center - core_width)))),
-        int(np.argmin(np.abs(freqs - (core_center + core_width)))),
-    )
-
-    w_grid = [0.01, 0.02, 0.05, 0.1]
-    best_w = w_grid[0]
-    best_leak_fw = np.inf
-    best_L_fw = None
-
-    for w in w_grid:
-        L_fw = fwsvd_lowrank(X, k_choice, w_core=w, core_idx=core_idx_bounds)
-        leak_val = np.linalg.norm(R_true - L_fw, "fro") / (R_norm + 1e-16)
-
-        Ek = X - L_fw
-        preservation = np.linalg.norm(Ek, "fro") / (S_norm + 1e-16)
-        dist_val = 1.0 - preservation
-
-        # Prefer params that don't worsen dist beyond 5%
-        if dist_val <= dist_s_at_k * 1.05 and leak_val < best_leak_fw:
-            best_leak_fw = leak_val
-            best_w = w
-            best_L_fw = L_fw
-
-    if best_L_fw is None:
-        best_L_fw = fwsvd_lowrank(X, k_choice, w_core=best_w, core_idx=core_idx_bounds)
-
-    # Optimize TSVD window
-    window_grid = [3, 5, 7, 9, 11]
-    best_win = window_grid[0]
-    best_leak_t = np.inf
-    best_L_t = None
-
-    for win in window_grid:
-        L_t = tsvd_Lk(X, k_choice, window=win)
-        leak_val = np.linalg.norm(R_true - L_t, "fro") / (R_norm + 1e-16)
-
-        Ek = X - L_t
-        preservation = np.linalg.norm(Ek, "fro") / (S_norm + 1e-16)
-        dist_val = 1.0 - preservation
-
-        if dist_val <= dist_s_at_k * 1.05 and leak_val < best_leak_t:
-            best_leak_t = leak_val
-            best_win = win
-            best_L_t = L_t
-
-    if best_L_t is None:
-        best_L_t = tsvd_Lk(X, k_choice, window=best_win)
-
-    # Baseline SVD
-    L_s = truncated_svd_Lk(X, k_choice)
-
-    # Plot (no EoR window for simulation)
-    freq_axis = make_freq_axis(F, fmin=50.0, fmax=225.0)
-    plot_comparison(
-        L_s,
-        best_L_fw,
-        best_L_t,
-        S_true,
-        freq_axis,
-        k_choice=k_choice,
-        best_w=best_w,
-        best_win=best_win,
-        outpath=outpath,
-        eor_window=None,
-    )
 
 
 # ============================================================================
@@ -573,7 +421,7 @@ def run_hera(
         S_true,
         freq_mhz,
         k_choice=rank,
-        best_w=best_w,
+        best_w=round(float(best_w), 3),
         best_win=best_win,
         outpath=outpath,
         eor_window=(EOR_START, EOR_END),
@@ -761,7 +609,7 @@ def plot_hera_eor_figure(
     mats = [R_s, R_fw, R_t]
     titles = [
         f"SVD (k={rank})",
-        f"FWSVD (k={rank}, w={best_w})",
+        f"FWSVD (k={rank}, w={best_w:.3g})",
         f"TSVD (k={rank}, win={best_win})",
     ]
 
@@ -861,7 +709,7 @@ def plot_hera_eor_figure(
         labels_with_metrics = [
             f"S_true (injected)\namp = {amp:.3f}",
             f"SVD residual\ncore RMSE = {metrics.get('SVD', float('nan')):.4f}",
-            f"FWSVD residual\ncore RMSE = {metrics.get('FWSVD', float('nan')):.4f}",
+            f"FWSVD residual\ncore RMSE = {metrics.get('FWSVD', float('nan')):.4f}\nw = {best_w:.3g}",
             f"TSVD residual\ncore RMSE = {metrics.get('TSVD', float('nan')):.4f}",
         ]
 
@@ -891,10 +739,7 @@ def plot_hera_eor_figure(
 # ============================================================================
 
 if __name__ == "__main__":
-    print("Running simulation...")
-    run_simulation()
-
-    print("\nRunning HERA analysis (EoR-like injection, k=3)...")
-    run_hera_eor_injection(outpath=OUTHERA, rank=3)
+    print("Running HERA analysis (EoR-like injection, k=2)...")
+    run_hera_eor_injection(outpath=OUTHERA, rank=2)
 
     print("\nDone!")
