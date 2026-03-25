@@ -1,27 +1,4 @@
-Skip to content
-single-epoch-rfi-mitigation
-Repository navigation
-Code
-Issues
-Pull requests
-Agents
-Actions
-Projects
-Wiki
-Security
-Insights
-Settings
-Comparing changes
-Choose two branches to see what’s changed or to start a new pull request. If you need to, you can also  or learn more about diff comparisons.
-...
-There isn’t anything to compare.
-main and hera-figures are entirely different commit histories.
 
- Showing  with 901 additions and 0 deletions.
- 901 changes: 901 additions & 0 deletions901  
-tools/make_figure_svd_fws_tsvd_panels.py
-Original file line number	Diff line number	Diff line change
-@@ -0,0 +1,901 @@
 #!/usr/bin/env python3
 """
 Create 3-panel comparisons (SVD, FWSVD, TSVD) for:
@@ -921,16 +898,3 @@ if __name__ == "__main__":
     run_hera_eor_injection(outpath=OUTHERA, rank=3)
 
     print("\nDone!")
-Footer
-© 2026 GitHub, Inc.
-Footer navigation
-Terms
-Privacy
-Security
-Status
-Community
-Docs
-Contact
-Manage cookies
-Do not share my personal information
-Comparing main...hera-figures · kimeujin03-droid/single-epoch-rfi-mitigation
